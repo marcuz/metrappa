@@ -1,1 +1,5 @@
-SNMP traps parser, check "parse_trap.conf" for a sample configuration
+SNMP traps parser whose submits a passive nagios NSCA check, please read "parse_trap.conf" for a sample configuration
+
+marco@mah:~/super/secret/path$ cat linkUp.txt | python parse_trap.py 
+DEBUG: Reverse DNS lookup failed for ip '188.40.57.666'
+DEBUG: {'status': 3, 'uptime': '392 days', 'if_desc': 'GigabitEthernet3/69', 'timestamp': '2011-11-14 18:32:19', 'oid': 'linkUp', 'sender_hostname': False, 'sender_ip': '188.40.57.666', 'if_alias': 'F-U', 'status_info': 'failed', 'sender_fqdn': False}
