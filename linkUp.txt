@@ -1,0 +1,9 @@
+ospf5.alternativi.org
+UDP: [10.13.31.666]->[188.40.57.666]:161
+sysUpTimeInstance 392:15:37:56.10
+snmpTrapOID.0 linkUp
+ifIndex[81] 81
+ifAdminStatus[81] up
+ifOperStatus[81] up
+ifDescr[81] GigabitEthernet3/69
+ifAlias[81] F-U
