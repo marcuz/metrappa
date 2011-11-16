@@ -23,6 +23,11 @@ status = {0: 'completed',
           2: 'processing',
           3: 'failed'}
 
+def update_status(t, s):
+    t['status'] = s
+    t['status_info'] = status[t['status']]
+    return t
+
 def parse_re(t, d, l):
     """ parses trap lines associating traps details with traps{} keys """
     for i in d:
@@ -38,7 +43,7 @@ def parse_re(t, d, l):
 def parse_trap():
     """ reads trap details """
     t = {}
-    f = "%Y-%m-%d %H:%M:%S"
+    f = "%b %d %H:%M:%S %Y"
     t['timestamp'] = datetime.datetime.now().strftime(f)
     for line in fileinput.input():
         line = line.strip('\n')
@@ -56,9 +61,11 @@ def fix_format(t):
         socket.setdefaulttimeout(3)
         t['sender_fqdn'] = socket.gethostbyaddr(t['sender_ip'])[0]
     except Exception:
-        if dbg:
-            debug("Reverse DNS lookup failed for ip '%s'" % t['sender_ip'])
+        m = "Reverse DNS lookup failed for ip \"%s\"" % t['sender_ip']
         t['sender_fqdn'] = t['sender_hostname'] = False
+        t = update_status(t, 3)
+        debug(m)
+        logtofile(t, m)
     # sender hostname
     if t['sender_fqdn']:
         for d in strip_domains:
@@ -74,7 +81,7 @@ def fix_nsca_message(t):
         return "%s %s" % (t['bgp_peer_ip'], t['bgp_peer_state'])
     else:
         try:
-            return t['genmessage']
+            return t['genmessage'].strip('"')
         except KeyError:
             return ""
 
@@ -82,30 +89,53 @@ def ignore_trap(t):
     """ checks if a trap should be ignored """
     # list of traps to ignore
     if t['oid'] in ignore_oid:
-        debug("Trap ignored because of matching 'ignore_oid' OID")
-        return 1
+        m = "Trap ignored because of matching \"ignore_oid\" OID"
+        t = update_status(t, 1)
+        debug(m)
+        logtofile(t, m)
+        return t
     # bgp peers traps to ignore
     if 'bgp_peer_ip' in t:
         for i in ignore_bgp_ips:
             if i in t['bgp_peer_ip']:
-                debug("Trap ignored because of matching 'ignore_bgp_ips' IP [%s]" % i)
-                return 1
-    return 2
+                m = "Trap ignored because of matching \"ignore_bgp_ips\" IP [%s]" % i
+                t = update_status(t, 1)
+                debug(m)
+                logtofile(t, m)
+                return t
+    t = update_status(t, 2)
+    return t
 
 def debug(msg):
-    if log:
-        logtofile(str(msg))
     if dbg:
         print("DEBUG: %s" % msg)
 
-def logtofile(msg):
-    try:
-        f = open(logfile, "a")
-        f.write(msg + "\n")
-        f.close()
-    except IOError:
-        print("Can't open '%s' to append log lines, exiting." % logfile)
-        sys.exit()
+def logtofile(t, msg = False):
+    if log:
+        start = ['timestamp', 'sender_ip', 'uptime', 'oid', 'status_info']
+        logbeg = ""
+        for s in start:
+            # general logfile structure
+            logbeg += "%s " % t[s]
+        try:
+            f = open(logfile, "a")
+            if msg:
+                logline = "%s'%s'" % (logbeg, msg)
+            else:
+                # full data structure dump
+                s = t.keys()
+                start.reverse()
+                for i in start:
+                    s.remove(i)
+                logline = logbeg
+                for k in s:
+                    logline += "'%s: %s' " % (k, t[k])
+            f.write(logline + "\n")
+            f.close()
+        except IOError:
+            dbg = True
+            debug("Can't open \"%s\" to append log lines, exiting." % logfile)
+            sys.exit()
 
 def init():
     # global config options
@@ -127,9 +157,9 @@ def init():
     log = p['logging']['log']
     logfile = p['logging']['logfile']
     nsca_cmd = p['general']['nsca_command']
-    strip_domains = [d for d in p['general']['strip_domains'].split(',')]
-    ignore_oid = [i for i in p['ignore']['traps'].split(',')]
-    ignore_bgp_ips = [i for i in p['ignore']['bgp_ip'].split(',')]
+    strip_domains = [d.strip() for d in p['general']['strip_domains'].split(',')]
+    ignore_oid = [i.strip() for i in p['ignore']['traps'].split(',')]
+    ignore_bgp_ips = [i.strip() for i in p['ignore']['bgp_ip'].split(',')]
     traps = p['traps']
     return True
 
@@ -138,24 +168,23 @@ def main():
         sys.exit()
     t = parse_trap()
     t = fix_format(t)
-    t['status'] = ignore_trap(t)
-    t['status_info'] = status[t['status']]
+    t = ignore_trap(t)
     if t['status'] == 1:
         debug(t)
+        logtofile(t)
         sys.exit()
     nsca_message = fix_nsca_message(t)
     # send trap to monitoring
-    cmd = "echo -e \"%s\t%s\t%s\t%s\n\" | %s" % (t['sender_hostname'], \
-          "SNMP Traps", 2, t['uptime'] + " " + t['oid'] + " " + nsca_message, nsca_cmd)
+    cmd = "echo -e \"%s\t%s\t%s\t%s\n\" | %s" % (t['sender_hostname'], "SNMP Traps", 2, t['uptime'] + " " + t['oid'] + " " + nsca_message, nsca_cmd)
     # used to ignore stderr
     fnull = open(os.devnull, 'w')
     if subprocess.call(cmd, shell = True, stdout = fnull, stderr = fnull):
-        t['status'] = 3
+        t = update_status(t, 3)
     else:
-        t['status'] = 0
+        t = update_status(t, 0)
     fnull.close()
-    t['status_info'] = status[t['status']]
     debug(t)
+    logtofile(t)
 
 if __name__ == "__main__":
     sys.exit(main());
